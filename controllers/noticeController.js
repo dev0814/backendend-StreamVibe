@@ -110,23 +110,35 @@ exports.getNotices = asyncHandler(async (req, res, next) => {
   // Build query
   let query = { isActive: true };
   
-  // Filter by branch if specified and not 'All'
-  if (branch && branch !== 'All') {
-    query.branch = branch;
+  // If user is a student, filter notices based on their branch and year
+  if (req.user && req.user.role === 'student') {
+    query.$or = [
+      // Notices for student's branch and year
+      { branch: req.user.branch, year: req.user.year },
+      // Notices for student's branch and all years
+      { branch: req.user.branch, year: 'All' },
+      // Notices for all branches and student's year
+      { branch: 'All', year: req.user.year },
+      // Notices for all branches and all years
+      { branch: 'All', year: 'All' }
+    ];
+  } else {
+    // For non-students, use the provided filters
+    if (branch && branch !== 'All') {
+      query.branch = branch;
+    }
+    if (year && year !== 'All') {
+      query.year = year;
+    }
   }
   
-  // Filter by year if specified and not 'All'
-  if (year && year !== 'All') {
-    query.year = year;
-  }
-  
-  // Filter by category if specified
-  if (category) {
+  // Filter by category if specified and not 'All'
+  if (category && category !== 'All') {
     query.category = category;
   }
   
-  // Filter by priority if specified
-  if (priority) {
+  // Filter by priority if specified and not 'All'
+  if (priority && priority !== 'All') {
     query.priority = priority;
   }
   
@@ -255,7 +267,7 @@ const createNotifications = async (notice) => {
 
 // @desc    Delete a notice
 // @route   DELETE /api/notices/:id
-// @access  Private/Teacher
+// @access  Private/Teacher/Admin
 exports.deleteNotice = asyncHandler(async (req, res, next) => {
   const notice = await Notice.findById(req.params.id);
   
@@ -267,16 +279,16 @@ exports.deleteNotice = asyncHandler(async (req, res, next) => {
   if (notice.teacher.toString() !== req.user.id && req.user.role !== 'admin') {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to delete this notice`, 401));
   }
-  
+
   // Delete attachments from cloudinary if any
   if (notice.attachments && notice.attachments.length > 0) {
-    const deletePromises = notice.attachments.map(attachment => 
-      cloudinary.uploader.destroy(attachment.filename)
-    );
+    const deletePromises = notice.attachments.map(attachment => {
+      return cloudinary.uploader.destroy(attachment.filename);
+    });
     await Promise.all(deletePromises);
   }
-  
-  await notice.remove();
+
+  await notice.deleteOne();
   
   res.status(200).json({
     success: true,
